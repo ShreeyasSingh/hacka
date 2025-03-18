@@ -22,7 +22,10 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_groq import ChatGroq
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.vectorstores import Chroma
 import io
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
 
 # Load environment variables
 load_dotenv()
@@ -815,16 +818,27 @@ with tab2:
         if not st.session_state.df_successful.empty:
             try:
                 with st.spinner("Thinking..."):
-                    # Process the question using LangChain with Groq
-                    # Create vector store from DataFrame
-                    documents = DataFrameLoader(st.session_state.df_successful).load()
-                    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-                    docs = text_splitter.split_documents(documents)
+                    # Get the dataframe data as a string
+                    df_sample = st.session_state.df_successful.head(20)  # Limit to 20 rows for performance
+                    df_string = df_sample.to_string()
                     
-                    # Initialize embeddings and retrieval QA
-                    # Use HuggingFaceEmbeddings instead of OpenAI
-                    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-                    vectorstore = FAISS.from_documents(docs, embeddings)
+                    # Create a prompt template
+                    prompt_template = """
+                    You are an AI assistant helping to analyze student results data.
+                    
+                    Here is a sample of the data (limited to 20 rows for brevity):
+                    {df_string}
+                    
+                    The user asks: {question}
+                    
+                    Please provide a detailed and accurate answer based on this data.
+                    If the information is not available in the data, please state that clearly.
+                    """
+                    
+                    prompt = PromptTemplate(
+                        template=prompt_template,
+                        input_variables=["df_string", "question"]
+                    )
                     
                     # Create Groq chat object
                     llm = ChatGroq(
@@ -833,24 +847,23 @@ with tab2:
                         model_name="llama3-70b-8192"  # Use an appropriate Groq model
                     )
                     
-                    # Create conversation chain
-                    qa = ConversationalRetrievalChain.from_llm(
-                        llm,
-                        vectorstore.as_retriever(),
-                        return_source_documents=True
-                    )
+                    # Create the chain
+                    chain = LLMChain(llm=llm, prompt=prompt)
                     
                     # Process the question
-                    result = qa({"question": question, "chat_history": []})
+                    response = chain.run({
+                        "df_string": df_string,
+                        "question": question
+                    })
                     
                     # Display the answer
                     st.write("### Answer")
-                    st.write(result["answer"])
+                    st.write(response)
                     
-                    # Display source info
-                    st.write("### Sources")
-                    for doc in result["source_documents"]:
-                        st.info(doc.page_content)
+                    # Display data source info
+                    st.write("### Data Source")
+                    st.write("Answer based on the student results data sample:")
+                    st.dataframe(df_sample)
             
             except Exception as e:
                 st.error(f"Error processing question: {str(e)}")
@@ -909,4 +922,3 @@ with open(sample_filename, "rb") as file:
         file_name=sample_filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
