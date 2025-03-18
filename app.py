@@ -815,17 +815,9 @@ with tab2:
         if not st.session_state.df_successful.empty:
             try:
                 with st.spinner("Thinking..."):
-                    # Create a text column by combining relevant information
-                    df_for_qa = st.session_state.df_successful.copy()
-                    
-                    # Create text column by combining all columns
-                    df_for_qa['text'] = df_for_qa.apply(
-                        lambda row: ' | '.join([f"{col}: {val}" for col, val in row.items()]),
-                        axis=1
-                    )
-                    
+                    # Process the question using LangChain with Groq
                     # Create vector store from DataFrame
-                    documents = DataFrameLoader(df_for_qa).load()
+                    documents = DataFrameLoader(st.session_state.df_successful).load()
                     text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
                     docs = text_splitter.split_documents(documents)
                     
@@ -917,3 +909,4 @@ with open(sample_filename, "rb") as file:
         file_name=sample_filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
