@@ -313,34 +313,88 @@ def scrape_result(driver, reg_no, dob, max_retries=3):
                 # Try different methods to find student name
                 name_element = None
                 name_selectors = [
-                    "//td[normalize-space()='Name']/following-sibling::td",
-                    "//th[normalize-space()='Name']/following-sibling::td",
-                    "//label[normalize-space()='Name']/following-sibling::*",
-                    "//div[normalize-space()='Name']/following-sibling::*",
-                    "//td[normalize-space()='Candidate']/following-sibling::td"
+                    "//td[contains(text(), 'Name') or contains(text(), 'NAME') or contains(text(), 'name')]/following-sibling::td",
+                    "//th[contains(text(), 'Name') or contains(text(), 'NAME') or contains(text(), 'name')]/following-sibling::td", 
+                    "//tr[contains(.,'Name') or contains(.,'NAME') or contains(.,'name')]/td[2]",
+                    "//label[contains(text(), 'Name') or contains(text(), 'NAME') or contains(text(), 'name')]/following-sibling::*",
+                    "//div[contains(text(), 'Name') or contains(text(), 'NAME') or contains(text(), 'name')]/following-sibling::*",
+                    "//td[contains(text(), 'Candidate') or contains(text(), 'CANDIDATE')]/following-sibling::td"
                 ]
                 
+                # First attempt with exact selectors
                 for selector in name_selectors:
                     try:
                         elements = driver.find_elements(By.XPATH, selector)
                         if elements:
-                            name_element = elements[0]
-                            break
+                            for element in elements:
+                                text = element.text.strip()
+                                # Filter out common institution names or empty values
+                                if (text and 
+                                    len(text) > 3 and 
+                                    "university" not in text.lower() and 
+                                    "madras" not in text.lower() and
+                                    "institution" not in text.lower() and
+                                    "college" not in text.lower()):
+                                    name_element = element
+                                    break
+                            if name_element:
+                                break
                     except:
                         continue
                 
+                # If still not found, try looking for the typical positioning of names in result pages
+                if not name_element:
+                    try:
+                        # Try to find tables with potential student info
+                        tables = driver.find_elements(By.TAG_NAME, "table")
+                        for table in tables:
+                            rows = table.find_elements(By.TAG_NAME, "tr")
+                            for row in rows:
+                                cells = row.find_elements(By.TAG_NAME, "td")
+                                if len(cells) >= 2:
+                                    # Check if first cell contains something like "Name" or "Student"
+                                    first_cell = cells[0].text.lower().strip()
+                                    if "name" in first_cell or "student" in first_cell or "candidate" in first_cell:
+                                        second_cell = cells[1].text.strip()
+                                        if (second_cell and 
+                                            "university" not in second_cell.lower() and 
+                                            "madras" not in second_cell.lower() and
+                                            len(second_cell) > 3):
+                                            name_element = cells[1]
+                                            break
+                            if name_element:
+                                break
+                    except:
+                        pass
+                
+                # If name element found, extract text
                 if name_element:
-                    results["Student Name"] = name_element.text.strip()
+                    student_name = name_element.text.strip()
+                    # Final verification - if the name looks valid, use it
+                    if (student_name and 
+                        "university" not in student_name.lower() and 
+                        "madras" not in student_name.lower() and
+                        len(student_name) > 3):
+                        results["Student Name"] = student_name
+                    else:
+                        results["Student Name"] = "Name extraction failed"
                 else:
                     # Alternative method: look for elements with certain formatting
                     bold_elements = driver.find_elements(By.XPATH, "//b | //strong")
                     for element in bold_elements:
                         text = element.text.strip()
-                        if len(text) > 5 and ":" not in text and text.upper() != text:  # Likely a name
+                        if (len(text) > 3 and 
+                            ":" not in text and 
+                            "university" not in text.lower() and 
+                            "madras" not in text.lower() and
+                            text.upper() != text):  # Likely a name
                             results["Student Name"] = text
                             break
-            except:
+                    else:
+                        results["Student Name"] = "Name extraction failed"
+            except Exception as e:
                 results["Student Name"] = "Name extraction failed"
+                print(f"Error extracting name: {str(e)}")
             
             # Find subject data (codes, names, marks)
             subject_results = {}
@@ -922,3 +976,4 @@ with open(sample_filename, "rb") as file:
         file_name=sample_filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
